@@ -1,9 +1,24 @@
+# Core data + ML
 pandas
 numpy
 scikit-learn
+xgboost
+joblib
+
+# Pulling data and config
 requests
 python-dotenv
+
+# Feature store + model registry
+hopsworks
+
+# Explainability
+shap
+
+# Inference API
 fastapi
-uvicorn
+uvicorn[standard]
+
+# Dashboard
 streamlit
-joblib
+plotly
