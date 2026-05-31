@@ -24,3 +24,7 @@ uvicorn[standard]
 # Dashboard
 streamlit
 plotly
+
+# EDA notebook
+matplotlib
+seaborn
