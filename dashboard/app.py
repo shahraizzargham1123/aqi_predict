@@ -9,6 +9,7 @@ Run it with:
     streamlit run dashboard/app.py
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,17 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+# On Streamlit Community Cloud the Hopsworks credentials come in as Streamlit
+# secrets rather than a .env file. Copy them into the environment before we load
+# anything that reads config, so the same code works deployed and locally.
+# Accessing st.secrets with no secrets file raises, hence the guard.
+try:
+    for _key in ("HOPSWORKS_API_KEY", "HOPSWORKS_PROJECT"):
+        if not os.getenv(_key) and _key in st.secrets:
+            os.environ[_key] = st.secrets[_key]
+except Exception:
+    pass
 
 from utils import config
 from utils.predict import latest_forecast, recent_history
