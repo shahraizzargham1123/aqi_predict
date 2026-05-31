@@ -30,12 +30,8 @@ def _hopsworks_available():
 
 
 def _login():
-    import hopsworks
-    project = hopsworks.login(
-        api_key_value=config.HOPSWORKS_API_KEY,
-        project=config.HOPSWORKS_PROJECT,
-    )
-    return project
+    from utils.hops import login
+    return login()
 
 
 def save_features(df):

@@ -9,8 +9,10 @@ joblib
 requests
 python-dotenv
 
-# Feature store + model registry
-hopsworks
+# Feature store + model registry. The [python] extra pulls in confluent-kafka
+# which the offline insert needs, and we pin to 4.7.x to match the Hopsworks
+# backend. Needs Python 3.11/3.12 (it won't build on 3.13+ yet).
+hopsworks[python]==4.7.*
 
 # Explainability
 shap

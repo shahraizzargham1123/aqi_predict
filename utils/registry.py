@@ -31,11 +31,8 @@ def _hopsworks_available():
 
 
 def _login():
-    import hopsworks
-    return hopsworks.login(
-        api_key_value=config.HOPSWORKS_API_KEY,
-        project=config.HOPSWORKS_PROJECT,
-    )
+    from utils.hops import login
+    return login()
 
 
 def save_model(estimator, feature_names, metrics, model_label):
