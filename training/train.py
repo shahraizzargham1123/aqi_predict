@@ -4,9 +4,11 @@ other, keep the best one and register it.
 
 We compare Ridge, ElasticNet, Random Forest and XGBoost. Each one predicts all
 three horizons at once (day+1, +2, +3) so a single model gives the whole 3-day
-outlook. The winner is whichever has the lowest average RMSE across the three
-days. There's room left to slot in a TensorFlow/LSTM model later, but the brief
-for now is classical models, so that's what we ship.
+outlook. Each model's hyperparameters are tuned with a time-series cross
+validation (a grid search over walk-forward splits) before they're judged on a
+held-out test set, and the winner is whichever has the lowest average RMSE
+across the three days. There's room left to slot in a TensorFlow/LSTM model
+later, but the brief for now is classical models, so that's what we ship.
 """
 
 import logging
@@ -19,6 +21,7 @@ import pandas as pd
 from sklearn.linear_model import Ridge, ElasticNet
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -64,28 +67,42 @@ def setup_logging():
 
 
 def candidate_models():
-    """The line-up. Linear models sit behind a scaler; the tree models don't
-    need one. XGBoost only joins if it's installed."""
+    """The line-up, each paired with a grid of settings to search over. Rather
+    than hardcode hyperparameters we let cross-validation pick them, which keeps
+    the linear models from over-extrapolating and gives the trees a fair shot.
+
+    Linear models sit behind a scaler; the tree models don't need one. The grids
+    are kept deliberately small because there isn't much data to validate on.
+    XGBoost only joins if it's installed."""
     models = {
-        "ridge": Pipeline([
-            ("scale", StandardScaler()),
-            ("model", Ridge(alpha=1.0)),
-        ]),
-        "elasticnet": Pipeline([
-            ("scale", StandardScaler()),
-            ("model", ElasticNet(alpha=0.5, l1_ratio=0.5, max_iter=5000)),
-        ]),
-        "random_forest": RandomForestRegressor(
-            n_estimators=300, max_depth=12, random_state=42, n_jobs=-1,
+        "ridge": (
+            Pipeline([("scale", StandardScaler()), ("model", Ridge())]),
+            {"model__alpha": [0.1, 1.0, 10.0, 50.0, 100.0]},
+        ),
+        "elasticnet": (
+            Pipeline([("scale", StandardScaler()),
+                      ("model", ElasticNet(max_iter=10000))]),
+            {"model__alpha": [0.05, 0.1, 0.5, 1.0, 5.0],
+             "model__l1_ratio": [0.2, 0.5, 0.8]},
+        ),
+        "random_forest": (
+            RandomForestRegressor(random_state=42, n_jobs=-1),
+            {"n_estimators": [200, 400],
+             "max_depth": [4, 8, 12],
+             "min_samples_leaf": [1, 2]},
         ),
     }
     if HAS_XGBOOST:
         # XGBoost isn't natively multi-output, so wrap one regressor per day.
-        models["xgboost"] = MultiOutputRegressor(
-            XGBRegressor(
-                n_estimators=300, max_depth=4, learning_rate=0.05,
-                subsample=0.9, colsample_bytree=0.9, random_state=42,
-            )
+        # The grid params need the "estimator__" prefix to reach through the
+        # MultiOutputRegressor wrapper.
+        models["xgboost"] = (
+            MultiOutputRegressor(XGBRegressor(
+                random_state=42, subsample=0.9, colsample_bytree=0.9,
+            )),
+            {"estimator__n_estimators": [200, 400],
+             "estimator__max_depth": [2, 3, 4],
+             "estimator__learning_rate": [0.05, 0.1]},
         )
     return models
 
@@ -185,16 +202,26 @@ def main():
     X_test, y_test = test_df[feature_names], test_df[TARGET_COLS]
     log.info("Train rows: %d, test rows: %d", len(train_df), len(test_df))
 
+    # Walk-forward splits: every fold trains on the past and validates on the
+    # days right after it, so we never peek at the future to tune the present.
+    cv = TimeSeriesSplit(n_splits=4)
+
     results = {}
     fitted = {}
-    for name, model in candidate_models().items():
-        log.info("Training %s...", name)
-        model.fit(X_train, y_train)
-        scores = evaluate(y_test, model.predict(X_test))
+    for name, (estimator, grid) in candidate_models().items():
+        log.info("Tuning %s...", name)
+        search = GridSearchCV(
+            estimator, grid, cv=cv,
+            scoring="neg_root_mean_squared_error", n_jobs=-1,
+        )
+        search.fit(X_train, y_train)
+        best = search.best_estimator_
+        scores = evaluate(y_test, best.predict(X_test))
         results[name] = scores
-        fitted[name] = model
-        log.info("  %s -> RMSE %.2f  MAE %.2f  R2 %.3f",
-                 name, scores["rmse"], scores["mae"], scores["r2"])
+        fitted[name] = best
+        log.info("  %s -> RMSE %.2f  MAE %.2f  R2 %.3f  | best: %s",
+                 name, scores["rmse"], scores["mae"], scores["r2"],
+                 search.best_params_)
 
     best_name = min(results, key=lambda n: results[n]["rmse"])
     best_scores = results[best_name]
