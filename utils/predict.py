@@ -26,7 +26,9 @@ def latest_forecast():
     latest = df.iloc[-1]
     base_date = pd.to_datetime(latest["date"])
 
-    X = latest[feature_names].to_frame().T
+    # Keep it as a one-row frame and force numeric dtypes. Pulling a single row
+    # out as a Series turns everything into object, which the tree models reject.
+    X = df.iloc[[-1]][feature_names].astype(float)
     preds = model.predict(X)[0]
 
     forecast = []
