@@ -13,6 +13,7 @@ instead.
 """
 
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -24,12 +25,36 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from utils import config
 from utils.aqi import compute_aqi
 
+# Open-Meteo occasionally throws a transient 5xx or rate-limits us. These are the
+# codes worth waiting out and retrying rather than giving up on.
+_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
-def _get_json(url, params):
-    """One small wrapper so every call gets the same timeout and error handling."""
-    response = requests.get(url, params=params, timeout=60)
-    response.raise_for_status()
-    return response.json()
+
+def _get_json(url, params, retries=4, backoff=2.0):
+    """GET some JSON, retrying with backoff on the kind of hiccups that sort
+    themselves out (timeouts, dropped connections, transient 5xx). A real client
+    error (bad params, etc.) still raises straight away."""
+    for attempt in range(retries):
+        last = attempt == retries - 1
+        try:
+            response = requests.get(url, params=params, timeout=60)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if last:
+                raise
+            wait = backoff * (2 ** attempt)
+            print(f"Open-Meteo connection issue ({exc}); retrying in {wait:.0f}s")
+            time.sleep(wait)
+            continue
+
+        if response.status_code in _TRANSIENT_STATUS and not last:
+            wait = backoff * (2 ** attempt)
+            print(f"Open-Meteo returned {response.status_code}; retrying in "
+                  f"{wait:.0f}s")
+            time.sleep(wait)
+            continue
+
+        response.raise_for_status()
+        return response.json()
 
 
 def _hourly_frame(payload):

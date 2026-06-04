@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -118,9 +119,20 @@ def run_backfill():
 
 def run_recent():
     """Hourly top-up. Grab a short window so lags/rolling stats are valid, keep
-    the most recent rows even if their targets aren't known yet."""
+    the most recent rows even if their targets aren't known yet.
+
+    If Open-Meteo is simply down, we don't treat that as a failure: a missed
+    hour is harmless because the next run re-pulls a 14-day window and catches
+    up. So we log it and exit cleanly rather than firing off a false alarm. Any
+    other error (bad credentials, a real bug) is left to blow up loudly."""
     print(f"Updating {config.CITY_NAME} with recent data...")
-    hourly = fetch_recent(past_days=14)
+    try:
+        hourly = fetch_recent(past_days=14)
+    except requests.RequestException as exc:
+        print(f"Open-Meteo is unavailable right now ({exc}). Skipping this run; "
+              f"the next hourly run will catch up.")
+        return
+
     features = build_feature_frame(hourly, drop_incomplete=False)
     print(f"Built {len(features)} daily feature rows.")
     feature_store.save_features(features)
