@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.linear_model import Ridge, ElasticNet
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -132,11 +133,20 @@ def evaluate(y_true, y_pred):
     }
 
 
-def time_split(df, test_fraction=0.2):
-    """Time series, so no shuffling. The last chunk of days is the test set."""
-    df = df.sort_values("date").reset_index(drop=True)
-    split = int(len(df) * (1 - test_fraction))
-    return df.iloc[:split], df.iloc[split:]
+def holdout_split(df):
+    """Carve out the frozen validation window defined in config. Those rows are
+    never trained on, and every model is scored on exactly them. That's the
+    whole trick: because the test set is identical every run, the RMSE from
+    today's retrain is directly comparable to last week's, so we can honestly
+    pick the best model across versions instead of being fooled by whichever one
+    happened to get an easy test week."""
+    dates = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
+    start = pd.Timestamp(config.HOLDOUT_START)
+    end = pd.Timestamp(config.HOLDOUT_END)
+    in_holdout = (dates >= start) & (dates <= end)
+    train = df[~in_holdout].sort_values("date").reset_index(drop=True)
+    holdout = df[in_holdout].sort_values("date").reset_index(drop=True)
+    return train, holdout
 
 
 def explain(best_estimator, X_train, X_test, feature_names, log):
@@ -197,13 +207,21 @@ def main():
     feature_names = [c for c in df.columns if c not in NON_FEATURE_COLS]
     log.info("Loaded %d rows with %d features.", len(df), len(feature_names))
 
-    train_df, test_df = time_split(df)
+    train_df, holdout_df = holdout_split(df)
+    if holdout_df.empty:
+        raise ValueError(
+            f"Frozen validation window {config.HOLDOUT_START}..{config.HOLDOUT_END} "
+            "matched no rows. Check the dates in config."
+        )
     X_train, y_train = train_df[feature_names], train_df[TARGET_COLS]
-    X_test, y_test = test_df[feature_names], test_df[TARGET_COLS]
-    log.info("Train rows: %d, test rows: %d", len(train_df), len(test_df))
+    X_hold, y_hold = holdout_df[feature_names], holdout_df[TARGET_COLS]
+    log.info("Train rows: %d, frozen validation rows: %d (%s to %s)",
+             len(train_df), len(holdout_df),
+             config.HOLDOUT_START, config.HOLDOUT_END)
 
-    # Walk-forward splits: every fold trains on the past and validates on the
-    # days right after it, so we never peek at the future to tune the present.
+    # Walk-forward splits for the hyperparameter search, so tuning never peeks at
+    # the future to tune the present. The final score, though, is always the
+    # frozen validation set above.
     cv = TimeSeriesSplit(n_splits=4)
 
     results = {}
@@ -216,7 +234,7 @@ def main():
         )
         search.fit(X_train, y_train)
         best = search.best_estimator_
-        scores = evaluate(y_test, best.predict(X_test))
+        scores = evaluate(y_hold, best.predict(X_hold))
         results[name] = scores
         fitted[name] = best
         log.info("  %s -> RMSE %.2f  MAE %.2f  R2 %.3f  | best: %s",
@@ -225,18 +243,32 @@ def main():
 
     best_name = min(results, key=lambda n: results[n]["rmse"])
     best_scores = results[best_name]
-    log.info("Best model: %s (RMSE %.2f, MAE %.2f, R2 %.3f)",
+    log.info("Best on frozen validation: %s (RMSE %.2f, MAE %.2f, R2 %.3f)",
              best_name, best_scores["rmse"], best_scores["mae"],
              best_scores["r2"])
 
-    explain(fitted[best_name], X_train, X_test, feature_names, log)
+    # The frozen window did its job: it told us which model wins, fairly. Now
+    # refit that winner on every row we have, holdout included, so the model we
+    # actually ship has learned from all the data, the late-May spike and all.
+    # The reported RMSE still comes from data this selection process held out, so
+    # it stays an honest, comparable number.
+    X_all, y_all = df[feature_names], df[TARGET_COLS]
+    final_model = clone(fitted[best_name])
+    final_model.fit(X_all, y_all)
+    log.info("Refit %s on all %d rows for deployment.", best_name, len(df))
 
+    explain(final_model, X_train, X_hold, feature_names, log)
+
+    # holdout_rmse is the key the registry selects on. It only exists on models
+    # trained against the frozen window, so older versions are simply skipped
+    # rather than competing on incomparable numbers.
     flat_metrics = {
         "rmse": best_scores["rmse"],
         "mae": best_scores["mae"],
         "r2": best_scores["r2"],
+        "holdout_rmse": best_scores["rmse"],
     }
-    registry.save_model(fitted[best_name], feature_names, flat_metrics, best_name)
+    registry.save_model(final_model, feature_names, flat_metrics, best_name)
     log.info("Done.")
 
 

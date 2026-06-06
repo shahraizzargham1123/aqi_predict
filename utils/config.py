@@ -28,6 +28,14 @@ BACKFILL_DAYS = 90
 # this, so keep it in one spot.
 FORECAST_HORIZON = 3
 
+# A frozen validation window. Every training run scores its models on exactly
+# these dates (and never trains on them), so the numbers are comparable from one
+# day's retrain to the next and "pick the best model" actually means something.
+# We picked a stretch that mixes calm days with the late-May spike, so it's a
+# fair stress test rather than a lucky easy week.
+HOLDOUT_START = "2026-05-20"
+HOLDOUT_END = "2026-06-02"
+
 # Open-Meteo endpoints. No API key needed, which is exactly why we picked it.
 # The "archive" hosts are the historical ones used for the backfill.
 AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
