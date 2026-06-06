@@ -75,15 +75,25 @@ def save_model(estimator, feature_names, metrics, model_label):
 
 
 def load_model():
-    """Load the latest model bundle. Prefers Hopsworks, falls back to local."""
+    """Load the best model bundle. Prefers Hopsworks, falls back to local.
+
+    "Best" means lowest RMSE on the frozen validation window, which is the only
+    fair way to compare versions trained on different days. We look at
+    holdout_rmse specifically, so versions trained before we introduced that
+    window (which scored on incomparable data) are skipped automatically rather
+    than winning on a number that doesn't mean the same thing."""
     if _hopsworks_available():
         project = _login()
         mr = project.get_model_registry()
-        model = mr.get_best_model(
-            name=config.MODEL_NAME,
-            metric="rmse",
-            direction="min",
-        )
+        models = mr.get_models(config.MODEL_NAME)
+        graded = [m for m in models
+                  if m.training_metrics and "holdout_rmse" in m.training_metrics]
+        if graded:
+            model = min(graded, key=lambda m: m.training_metrics["holdout_rmse"])
+        else:
+            # Nothing trained against the frozen window yet, fall back to the old
+            # behaviour so the app still has something to serve.
+            model = mr.get_best_model(config.MODEL_NAME, "rmse", "min")
         download_dir = model.download()
         return joblib.load(Path(download_dir) / "model.pkl")
 
