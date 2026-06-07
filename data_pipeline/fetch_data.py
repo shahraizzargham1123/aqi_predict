@@ -2,13 +2,13 @@
 Pulls raw pollutant + weather readings from Open-Meteo and stitches them into a
 single hourly table, with the AQI worked out for every row.
 
-There are two ways we use this:
+There are two ways I use this:
   - fetch_history(start, end)  -> the big historical pull used for the backfill
   - fetch_recent(past_days)    -> the small rolling window the hourly job uses
 
-Open-Meteo is free and needs no API key, which is the whole reason we went with
+Open-Meteo is free and needs no API key, which is the whole reason I went with
 it. The catch is the historical weather ("archive") feed lags real time by a few
-days, so for recent data we ask the regular forecast feed for its "past_days"
+days, so for recent data I ask the regular forecast feed for its "past_days"
 instead.
 """
 
@@ -19,13 +19,13 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-# Make sure we can import the project packages when run as a plain script.
+# Make sure I can import the project packages when run as a plain script.
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from utils import config
 from utils.aqi import compute_aqi
 
-# Open-Meteo occasionally throws a transient 5xx or rate-limits us. These are the
+# Open-Meteo occasionally throws a transient 5xx or rate-limits me. These are the
 # codes worth waiting out and retrying rather than giving up on.
 _TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
@@ -109,7 +109,7 @@ def _combine(air_df, weather_df):
         axis=1,
     )
 
-    # Rows where we couldn't compute an AQI are useless downstream.
+    # Rows where I couldn't compute an AQI are useless downstream.
     merged = merged.dropna(subset=["aqi"]).reset_index(drop=True)
     return merged
 
@@ -129,7 +129,7 @@ def fetch_history(start_date, end_date):
 
 def fetch_recent(past_days=7):
     """
-    Rolling recent window for the hourly job. We grab a handful of past days so
+    Rolling recent window for the hourly job. I grab a handful of past days so
     the feature pipeline has enough history to build lag/rolling features.
     """
     air = _fetch_air_quality({"past_days": past_days, "forecast_days": 1})

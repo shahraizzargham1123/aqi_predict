@@ -2,8 +2,8 @@
 Thin layer over the Hopsworks feature store.
 
 The idea is the rest of the code never has to care *where* the features live.
-If a Hopsworks API key is configured we read/write there. If it isn't (or the
-library can't be imported), we quietly fall back to a local CSV under data/ so
+If a Hopsworks API key is configured I read/write there. If it isn't (or the
+library can't be imported), it quietly falls back to a local CSV under data/ so
 the pipeline still runs end to end while developing or demoing offline.
 """
 
@@ -19,7 +19,7 @@ _LOCAL_FILE = _LOCAL_DIR / "features.csv"
 
 
 def _hopsworks_available():
-    """We only use Hopsworks if there's a key set and the library is importable."""
+    """Only use Hopsworks if there's a key set and the library is importable."""
     if not config.HOPSWORKS_API_KEY:
         return False
     try:

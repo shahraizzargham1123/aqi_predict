@@ -2,7 +2,7 @@
 One place to log into Hopsworks.
 
 The cert_folder bit matters on Windows: the client defaults its certificate
-folder to "/tmp", which doesn't exist here, so we point it at the real system
+folder to "/tmp", which doesn't exist here, so I point it at the real system
 temp dir instead. On Linux (where the GitHub Actions jobs run) this is harmless.
 """
 

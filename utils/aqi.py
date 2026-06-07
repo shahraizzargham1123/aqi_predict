@@ -1,12 +1,12 @@
 """
 US EPA Air Quality Index calculation.
 
-Open-Meteo hands us raw pollutant concentrations (mostly in µg/m³), but the AQI
+Open-Meteo hands me raw pollutant concentrations (mostly in µg/m³), but the AQI
 number people actually recognise is the EPA index from 0-500. This module turns
 those concentrations into that index.
 
 A note on honesty: the official EPA AQI uses averaging windows (24h for
-particulates, 8h for ozone and CO, 1h for the gases). We're working with hourly
+particulates, 8h for ozone and CO, 1h for the gases). I'm working with hourly
 readings and compute the sub-index straight off each hourly value. That's a
 common simplification for a forecasting feature and keeps the pipeline simple,
 but it's worth knowing it's not the exact regulatory number.
@@ -81,7 +81,7 @@ NO2_BREAKPOINTS = [
 ]
 
 # Multiplier to turn µg/m³ into ppb at 25°C / 1 atm. Works out to
-# 24.45 / molecular_weight. CO we then divide by 1000 to land on ppm.
+# 24.45 / molecular_weight. CO I then divide by 1000 to land on ppm.
 UGM3_TO_PPB = {
     "ozone": 24.45 / 48.00,
     "nitrogen_dioxide": 24.45 / 46.01,
@@ -107,7 +107,7 @@ def compute_aqi(pm2_5=None, pm10=None, ozone=None, nitrogen_dioxide=None,
                 sulphur_dioxide=None, carbon_monoxide=None):
     """
     Overall AQI for a single reading. The EPA index is the worst sub-index
-    across all the pollutants we have data for, so we compute each one we can
+    across all the pollutants I have data for, so I compute each one I can
     and take the max.
     """
     sub_indices = []

@@ -1,5 +1,5 @@
 """
-Turns raw hourly readings into the daily feature table we actually train on.
+Turns raw hourly readings into the daily feature table I actually train on.
 
 The flow is: pull raw data -> collapse to one row per day -> add time and
 derived features -> attach the next-3-days AQI targets -> save to the feature
@@ -25,7 +25,7 @@ from utils import config
 from utils import feature_store
 from data_pipeline.fetch_data import fetch_history, fetch_recent
 
-# Columns we average when collapsing hours into a day.
+# Columns I average when collapsing hours into a day.
 _DAILY_MEAN_COLS = config.AIR_QUALITY_VARS + config.WEATHER_VARS + ["aqi"]
 
 
@@ -79,7 +79,7 @@ def add_derived_features(daily):
 
 
 def add_targets(daily):
-    """The thing we predict: AQI 1, 2 and 3 days into the future."""
+    """The thing I predict: AQI 1, 2 and 3 days into the future."""
     daily = daily.copy()
     for h in range(1, config.FORECAST_HORIZON + 1):
         daily[f"aqi_next_{h}"] = daily["aqi"].shift(-h)
@@ -87,8 +87,8 @@ def add_targets(daily):
 
 
 def build_feature_frame(hourly_df, drop_incomplete=True):
-    """Run the whole transform. With drop_incomplete we throw away rows that are
-    missing lags or targets; for the live top-up we keep the latest day even
+    """Run the whole transform. With drop_incomplete I throw away rows that are
+    missing lags or targets; for the live top-up I keep the latest day even
     though its future targets aren't known yet."""
     daily = to_daily(hourly_df)
     daily = add_time_features(daily)
@@ -121,9 +121,9 @@ def run_recent():
     """Hourly top-up. Grab a short window so lags/rolling stats are valid, keep
     the most recent rows even if their targets aren't known yet.
 
-    If Open-Meteo is simply down, we don't treat that as a failure: a missed
+    If Open-Meteo is simply down, I don't treat that as a failure: a missed
     hour is harmless because the next run re-pulls a 14-day window and catches
-    up. So we log it and exit cleanly rather than firing off a false alarm. Any
+    up. So I log it and exit cleanly rather than firing off a false alarm. Any
     other error (bad credentials, a real bug) is left to blow up loudly."""
     print(f"Updating {config.CITY_NAME} with recent data...")
     try:
