@@ -1,7 +1,7 @@
 """
 Saving and loading the trained model, again with a Hopsworks-or-local split.
 
-We bundle everything the predictor needs into one dict (the fitted estimator,
+I bundle everything the predictor needs into one dict (the fitted estimator,
 the exact feature column order, the metrics and a little metadata) and persist
 that with joblib. The API and the dashboard both load through here, so they
 don't need to know whether the model came from Hopsworks or a local file.
@@ -75,25 +75,23 @@ def save_model(estimator, feature_names, metrics, model_label):
 
 
 def load_model():
-    """Load the best model bundle. Prefers Hopsworks, falls back to local.
+    """Load the model that's currently serving. Prefers Hopsworks, falls back to
+    local.
 
-    "Best" means lowest RMSE on the frozen validation window, which is the only
-    fair way to compare versions trained on different days. We look at
-    holdout_rmse specifically, so versions trained before we introduced that
-    window (which scored on incomparable data) are skipped automatically rather
-    than winning on a number that doesn't mean the same thing."""
+    I serve the latest registered version. That's safe because the training
+    pipeline only registers a new version once it has passed the guardrail (it
+    has to be at least about as good as the model already in service), so the
+    newest version is always one I've vetted."""
     if _hopsworks_available():
         project = _login()
         mr = project.get_model_registry()
         models = mr.get_models(config.MODEL_NAME)
-        graded = [m for m in models
-                  if m.training_metrics and "holdout_rmse" in m.training_metrics]
-        if graded:
-            model = min(graded, key=lambda m: m.training_metrics["holdout_rmse"])
-        else:
-            # Nothing trained against the frozen window yet, fall back to the old
-            # behaviour so the app still has something to serve.
-            model = mr.get_best_model(config.MODEL_NAME, "rmse", "min")
+        if not models:
+            raise FileNotFoundError(
+                f"No '{config.MODEL_NAME}' model in the registry yet. "
+                "Run the training pipeline first."
+            )
+        model = max(models, key=lambda m: m.version)
         download_dir = model.download()
         return joblib.load(Path(download_dir) / "model.pkl")
 

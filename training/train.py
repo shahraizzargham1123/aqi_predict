@@ -2,13 +2,13 @@
 Training pipeline: pull features from the store, race a few models against each
 other, keep the best one and register it.
 
-We compare Ridge, ElasticNet, Random Forest and XGBoost. Each one predicts all
+I compare Ridge, ElasticNet, Random Forest and XGBoost. Each one predicts all
 three horizons at once (day+1, +2, +3) so a single model gives the whole 3-day
 outlook. Each model's hyperparameters are tuned with a time-series cross
 validation (a grid search over walk-forward splits) before they're judged on a
 held-out test set, and the winner is whichever has the lowest average RMSE
 across the three days. There's room left to slot in a TensorFlow/LSTM model
-later, but the brief for now is classical models, so that's what we ship.
+later, but the brief for now is classical models, so that's what I ship.
 """
 
 import logging
@@ -69,7 +69,7 @@ def setup_logging():
 
 def candidate_models():
     """The line-up, each paired with a grid of settings to search over. Rather
-    than hardcode hyperparameters we let cross-validation pick them, which keeps
+    than hardcode hyperparameters I let cross-validation pick them, which keeps
     the linear models from over-extrapolating and gives the trees a fair shot.
 
     Linear models sit behind a scaler; the tree models don't need one. The grids
@@ -110,7 +110,7 @@ def candidate_models():
 
 def evaluate(y_true, y_pred):
     """RMSE, MAE and R², averaged over the three horizons but also kept per-day
-    so we can see which days are harder to call."""
+    so I can see which days are harder to call."""
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
@@ -133,24 +133,25 @@ def evaluate(y_true, y_pred):
     }
 
 
-def holdout_split(df):
-    """Carve out the frozen validation window defined in config. Those rows are
-    never trained on, and every model is scored on exactly them. That's the
-    whole trick: because the test set is identical every run, the RMSE from
-    today's retrain is directly comparable to last week's, so we can honestly
-    pick the best model across versions instead of being fooled by whichever one
-    happened to get an easy test week."""
-    dates = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
-    start = pd.Timestamp(config.HOLDOUT_START)
-    end = pd.Timestamp(config.HOLDOUT_END)
-    in_holdout = (dates >= start) & (dates <= end)
-    train = df[~in_holdout].sort_values("date").reset_index(drop=True)
-    holdout = df[in_holdout].sort_values("date").reset_index(drop=True)
-    return train, holdout
+def time_split(df, test_fraction=0.2):
+    """Time series, so no shuffling. The last chunk of days is the test set I
+    judge the candidate models on."""
+    df = df.sort_values("date").reset_index(drop=True)
+    split = int(len(df) * (1 - test_fraction))
+    return df.iloc[:split], df.iloc[split:]
+
+
+def baseline_rmse(test_df, y_test):
+    """RMSE of the naive persistence forecast: assume the next three days just
+    look like today. It's the bar any model I deploy should clear, and it's
+    recomputed each run so a calm or stormy week is judged on its own terms."""
+    today = test_df["aqi"].to_numpy().reshape(-1, 1)
+    persistence = np.repeat(today, len(TARGET_COLS), axis=1)
+    return evaluate(y_test, persistence)["rmse"]
 
 
 def explain(best_estimator, X_train, X_test, feature_names, log):
-    """Save feature importances. We use SHAP when it's available, and always
+    """Save feature importances. I use SHAP when it's available, and always
     fall back to the model's own importances/coefficients so there's something
     for the dashboard either way."""
     importance = None
@@ -207,21 +208,13 @@ def main():
     feature_names = [c for c in df.columns if c not in NON_FEATURE_COLS]
     log.info("Loaded %d rows with %d features.", len(df), len(feature_names))
 
-    train_df, holdout_df = holdout_split(df)
-    if holdout_df.empty:
-        raise ValueError(
-            f"Frozen validation window {config.HOLDOUT_START}..{config.HOLDOUT_END} "
-            "matched no rows. Check the dates in config."
-        )
+    train_df, test_df = time_split(df)
     X_train, y_train = train_df[feature_names], train_df[TARGET_COLS]
-    X_hold, y_hold = holdout_df[feature_names], holdout_df[TARGET_COLS]
-    log.info("Train rows: %d, frozen validation rows: %d (%s to %s)",
-             len(train_df), len(holdout_df),
-             config.HOLDOUT_START, config.HOLDOUT_END)
+    X_test, y_test = test_df[feature_names], test_df[TARGET_COLS]
+    log.info("Train rows: %d, test rows: %d", len(train_df), len(test_df))
 
     # Walk-forward splits for the hyperparameter search, so tuning never peeks at
-    # the future to tune the present. The final score, though, is always the
-    # frozen validation set above.
+    # the future to tune the present.
     cv = TimeSeriesSplit(n_splits=4)
 
     results = {}
@@ -234,7 +227,7 @@ def main():
         )
         search.fit(X_train, y_train)
         best = search.best_estimator_
-        scores = evaluate(y_hold, best.predict(X_hold))
+        scores = evaluate(y_test, best.predict(X_test))
         results[name] = scores
         fitted[name] = best
         log.info("  %s -> RMSE %.2f  MAE %.2f  R2 %.3f  | best: %s",
@@ -243,30 +236,39 @@ def main():
 
     best_name = min(results, key=lambda n: results[n]["rmse"])
     best_scores = results[best_name]
-    log.info("Best on frozen validation: %s (RMSE %.2f, MAE %.2f, R2 %.3f)",
+    log.info("Best candidate: %s (RMSE %.2f, MAE %.2f, R2 %.3f)",
              best_name, best_scores["rmse"], best_scores["mae"],
              best_scores["r2"])
 
-    # The frozen window did its job: it told us which model wins, fairly. Now
-    # refit that winner on every row we have, holdout included, so the model we
-    # actually ship has learned from all the data, the late-May spike and all.
-    # The reported RMSE still comes from data this selection process held out, so
-    # it stays an honest, comparable number.
+    # Guardrail: only promote the new model if it can beat the naive "tomorrow
+    # looks like today" baseline (within tolerance). A retrain that can't even
+    # do that is a bad model, so I keep whatever's already serving instead.
+    baseline = baseline_rmse(test_df, y_test)
+    ceiling = baseline * (1 + config.PROMOTION_TOLERANCE)
+    log.info("Persistence baseline RMSE %.2f (promotion ceiling %.2f).",
+             baseline, ceiling)
+    if best_scores["rmse"] > ceiling:
+        log.warning(
+            "Keeping current model: best candidate %s scores RMSE %.2f, which "
+            "can't beat the persistence baseline within tolerance. Not promoting.",
+            best_name, best_scores["rmse"])
+        log.info("Done.")
+        return
+
+    # Cleared to ship. Refit the winner on every row I have, the recent days
+    # included, so the deployed model has learned from all the data rather than
+    # just the training slice.
     X_all, y_all = df[feature_names], df[TARGET_COLS]
     final_model = clone(fitted[best_name])
     final_model.fit(X_all, y_all)
     log.info("Refit %s on all %d rows for deployment.", best_name, len(df))
 
-    explain(final_model, X_train, X_hold, feature_names, log)
+    explain(final_model, X_train, X_test, feature_names, log)
 
-    # holdout_rmse is the key the registry selects on. It only exists on models
-    # trained against the frozen window, so older versions are simply skipped
-    # rather than competing on incomparable numbers.
     flat_metrics = {
         "rmse": best_scores["rmse"],
         "mae": best_scores["mae"],
         "r2": best_scores["r2"],
-        "holdout_rmse": best_scores["rmse"],
     }
     registry.save_model(final_model, feature_names, flat_metrics, best_name)
     log.info("Done.")

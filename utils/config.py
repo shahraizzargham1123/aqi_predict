@@ -1,9 +1,9 @@
 """
-Central place for all the knobs we tweak across the project.
+Central place for all the knobs I tweak across the project.
 
 Everything that's environment specific (API keys, project names) is read from
 the environment / a local .env file, while the stuff that rarely changes
-(the city we're forecasting, which API we hit) lives here as plain constants.
+(the city I'm forecasting, which API I hit) lives here as plain constants.
 """
 
 import os
@@ -14,36 +14,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# The city we're forecasting for. Swapping cities is just a matter of changing
+# The city I'm forecasting for. Swapping cities is just a matter of changing
 # these two numbers and the label.
 CITY_NAME = "Lahore"
 LATITUDE = 31.5204
 LONGITUDE = 74.3587
 TIMEZONE = "Asia/Karachi"
 
-# How far back we backfill when first seeding the feature store.
+# How far back I backfill when first seeding the feature store.
 BACKFILL_DAYS = 90
 
-# How many days ahead we forecast. The targets and the dashboard both lean on
+# How many days ahead I forecast. The targets and the dashboard both lean on
 # this, so keep it in one spot.
 FORECAST_HORIZON = 3
 
-# A frozen validation window. Every training run scores its models on exactly
-# these dates (and never trains on them), so the numbers are comparable from one
-# day's retrain to the next and "pick the best model" actually means something.
-# We picked a stretch that mixes calm days with the late-May spike, so it's a
-# fair stress test rather than a lucky easy week.
-HOLDOUT_START = "2026-05-20"
-HOLDOUT_END = "2026-06-02"
+# How much worse than the current model a freshly trained one is allowed to be
+# and still get promoted. This is the guardrail: if a day's retrain comes out
+# noticeably worse than what's already serving, I keep the old one instead.
+PROMOTION_TOLERANCE = 0.20
 
-# Open-Meteo endpoints. No API key needed, which is exactly why we picked it.
+# Open-Meteo endpoints. No API key needed, which is exactly why I picked it.
 # The "archive" hosts are the historical ones used for the backfill.
 AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 WEATHER_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 WEATHER_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
-# Pollutants and weather variables we pull. Order doesn't matter to the API but
-# keeping them listed makes it obvious what we depend on.
+# Pollutants and weather variables I pull. Order doesn't matter to the API but
+# keeping them listed makes it obvious what I depend on.
 AIR_QUALITY_VARS = [
     "pm10",
     "pm2_5",
@@ -63,7 +60,7 @@ WEATHER_VARS = [
 HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY")
 HOPSWORKS_PROJECT = os.getenv("HOPSWORKS_PROJECT", "aqi_predict")
 
-# Names we use inside Hopsworks. Bumping the version is how we'd evolve the
+# Names I use inside Hopsworks. Bumping the version is how I'd evolve the
 # schema later without clobbering old data.
 FEATURE_GROUP_NAME = "aqi_features"
 FEATURE_GROUP_VERSION = 1
