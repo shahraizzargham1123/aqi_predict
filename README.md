@@ -1,11 +1,6 @@
 # Pearls AQI Predictor
 
-A small end-to-end machine learning system that forecasts the Air Quality Index
-for **Lahore** three days ahead. It pulls pollutant and weather data on a
-schedule, engineers features, trains and compares a handful of models, registers
-the best one, and serves the forecast through an API and a dashboard. The whole
-thing runs on free tiers — Open-Meteo for data, Hopsworks for the feature store
-and model registry, and GitHub Actions for automation.
+A small end-to-end machine learning system that predicts the Air Quality Index for Lahore three days into the future. It fetches pollutant and weather data on a schedule, builds features, trains and compares a few models, and registers the best one, then serves the forecast through an API and a dashboard. The whole setup runs on free tiers: Open-Meteo for the data, Hopsworks for the feature store and model registry, and GitHub Actions for automation.
 
 ## How it fits together
 
@@ -20,16 +15,10 @@ Open-Meteo API ──► feature pipeline ──► Hopsworks feature store
                    FastAPI service                          Streamlit dashboard
 ```
 
-- **Feature pipeline** (`feature_pipeline/build_features.py`) fetches the latest
-  data, collapses it to daily rows, builds time-based and derived features plus
-  the next-3-days targets, and writes them to the feature store.
-- **Training pipeline** (`training/train.py`) reads the features, races Ridge,
-  ElasticNet, Random Forest and XGBoost against each other, and registers
-  whichever has the lowest average RMSE.
-- **Inference API** (`inference_api/app.py`) loads the registered model and
-  serves the forecast as JSON.
-- **Dashboard** (`dashboard/app.py`) shows the current AQI, the 3-day outlook,
-  the recent trend, what's driving the prediction, and hazard alerts.
+- **Feature pipeline** (`feature_pipeline/build_features.py`) loads the most recent data, summarizes it to daily rows, constructs time-based and derived features and the next-3-days targets, and stores them in the feature store.
+- **Training pipeline** (`training/train.py`) loads the features, trains and races Ridge, ElasticNet, Random Forest and XGBoost, and registers the best one, but only when it passes a baseline guardrail, so a bad day's model cannot take the place of a good one.
+- **Inference API** (`inference_api/app.py`) loads the registered model and returns the forecast as JSON.
+- **Dashboard** (`dashboard/app.py`) shows the current AQI, the 3-day outlook, the recent trend, what's driving the prediction, and hazard alerts.
 
 ## Project layout
 
@@ -46,8 +35,7 @@ notebooks/          exploratory data analysis
 
 ## Getting set up
 
-You need **Python 3.11 or 3.12** — the Hopsworks client doesn't build on 3.13+
-yet, so this is worth getting right.
+You need **Python 3.11 or 3.12**. The Hopsworks client does not currently support 3.13+, so this is worth doing right.
 
 ```bash
 py -3.11 -m venv .venv
@@ -57,10 +45,8 @@ pip install -r requirements.txt
 
 ### Hopsworks
 
-1. Make a free account at [hopsworks.ai](https://app.hopsworks.ai) and create a
-   project.
-2. Generate an API key under **Account Settings → API Keys** with the feature
-   store, project, job and model registry scopes.
+1. Sign up for a free account at [hopsworks.ai](https://app.hopsworks.ai) and create a project.
+2. Create an API key under **Account Settings → API Keys** with the feature store, project, job and model registry scopes.
 3. Copy `.env.example` to `.env` and fill it in:
 
    ```
@@ -68,17 +54,13 @@ pip install -r requirements.txt
    HOPSWORKS_PROJECT=your_project_name
    ```
 
-If you skip this step the pipelines still run — they just fall back to a local
-CSV under `data/` instead of Hopsworks, which is handy for trying things out
-offline.
+In case you forget to do this the pipelines will continue to run, but will revert to a local CSV at data/ rather than Hopsworks, which is useful to test things out locally.
 
-> **Windows note:** the Hopsworks client writes some certificate files to
-> `/tmp`. If you hit a "path not found" error, create a `C:\tmp` folder once and
-> you're good.
+> **Windows note:** the Hopsworks client writes a few certificate files to `/tmp`. If you hit a "path not found" error, create a `C:\tmp` folder once and you're set.
 
 ## Running it
 
-Seed the feature store with ~90 days of history (do this once):
+Populate the feature store with history of about 90 days (only once):
 
 ```bash
 python feature_pipeline/build_features.py --backfill
@@ -96,21 +78,47 @@ streamlit run dashboard/app.py                 # open the dashboard
 The API gives you `/predict` for the full forecast and `/alert` for just the
 hazardous-day summary.
 
+## Deploying the dashboard
+
+The dashboard runs on **Streamlit Community Cloud**, which is free and redeploys
+itself on every push. To deploy your own copy:
+
+1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+2. Create a new app pointing at this repo, the `main` branch, and
+   `dashboard/app.py` as the main file.
+3. Under Advanced settings, add your Hopsworks secrets in TOML format (note the
+   quotes, this is not the same as the `.env` file):
+
+   ```toml
+   HOPSWORKS_API_KEY = "your_key_here"
+   HOPSWORKS_PROJECT = "your_project_name"
+   ```
+4. Click Deploy. The first build takes a few minutes while it installs the
+   dependencies; after that the app is live and refreshes whenever you push.
+
+The dashboard reads the model and features straight from Hopsworks, so it does
+not need the FastAPI service running to work.
+
 ## Automation
 
-Two GitHub Actions workflows keep things fresh: the feature pipeline runs every
-hour and the training pipeline runs once a day. For them to reach Hopsworks, add
-two repository secrets under **Settings → Secrets and variables → Actions**:
+There are two GitHub Actions workflows that keep things fresh: the feature pipeline runs every hour, and the training pipeline runs once a day. For them to reach Hopsworks, add two secrets in the repository under **Settings → Secrets and variables → Actions**:
 
 - `HOPSWORKS_API_KEY`
 - `HOPSWORKS_PROJECT`
 
-Both workflows can also be triggered by hand from the Actions tab.
+The workflows can also be initiated manually by the Actions tab.
+
+## Logs
+
+All runs are recorded to the console and a time-stamped file in the `logs/` directory: the size of the dataset, the RMSE/MAE/R² of each model, which model was the winner, the decision made by the guardrail and the push to the registry.
+
+These logs are available in a couple of locations:
+
+- **In each GitHub Actions run:** open the Actions tab, select a run and expand the steps to see the entire output. This is the history of all the scheduled runs.
+- **As a downloadable artifact:** at the end of every training run, the `logs/` folder is uploaded as a `training-logs` artifact, attached at the bottom.
+- **A committed example:** [`logs/sample_training.log`](logs/sample_training.log) is checked in so you can see what a run looks like without scrolling through the Actions tab. (The live `logs/*.log` files are gitignored since they regenerate.)
 
 ## A note on the data
 
-AQI is computed from the raw pollutant concentrations using the US EPA bands. We
-work off hourly readings rather than the official averaging windows, so treat
-the index as a faithful approximation rather than the exact regulatory figure.
-There's a fuller write-up of what was built, the model results and the
-limitations in [REPORT.md](REPORT.md).
+The raw pollutant concentrations are calculated to obtain AQI based on the US EPA bands. I operate on hourly readings, instead of the official averaging windows, and therefore consider the index as a truthful approximation, but not the actual regulatory number.
+A more detailed description of what was constructed, the model outputs and constraints are in [REPORT.md](REPORT.md).
