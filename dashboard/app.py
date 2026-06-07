@@ -20,7 +20,7 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 # On Streamlit Community Cloud the Hopsworks credentials come in as Streamlit
-# secrets rather than a .env file. Copy them into the environment before we load
+# secrets rather than a .env file. Copy them into the environment before loading
 # anything that reads config, so the same code works deployed and locally.
 # Accessing st.secrets with no secrets file raises, hence the guard.
 try:
@@ -51,6 +51,12 @@ def color_for(aqi):
         if aqi <= ceiling:
             return color
     return AQI_COLORS[-1][1]
+
+
+def pretty_date(iso_str):
+    """Turn an ISO date like 2026-06-07 into something friendlier like 'June 7'."""
+    d = pd.to_datetime(iso_str)
+    return f"{d.strftime('%B')} {d.day}"
 
 
 @st.cache_data(ttl=1800)
@@ -102,7 +108,8 @@ def main():
 
     # The headline alert. Loud and red when something's wrong, calm otherwise.
     if data["any_hazardous"]:
-        bad_days = ", ".join(d["date"] for d in data["forecast"] if d["hazardous"])
+        bad_days = ", ".join(pretty_date(d["date"]) for d in data["forecast"]
+                             if d["hazardous"])
         st.error(f"⚠️ Hazardous air expected on: {bad_days}. Limit outdoor "
                  f"activity and consider a mask.")
     else:
@@ -111,14 +118,14 @@ def main():
     st.subheader("Right now")
     aqi_metric_card("Latest observed AQI", data["current_aqi"],
                     data["current_category"])
-    st.caption(f"Based on data up to {data['based_on']} · "
+    st.caption(f"Based on data up to {pretty_date(data['based_on'])} · "
                f"model in use: {data['model']}")
 
     st.subheader("Next 3 days")
     cols = st.columns(len(data["forecast"]))
     for col, day in zip(cols, data["forecast"]):
         with col:
-            aqi_metric_card(f"Day +{day['horizon']} ({day['date']})",
+            aqi_metric_card(f"Day +{day['horizon']} ({pretty_date(day['date'])})",
                             day["aqi"], day["category"])
 
     st.subheader("Recent trend and forecast")
