@@ -1,0 +1,4 @@
+# The EDA notebook ships with its plots embedded, which makes it large in bytes
+# and skews GitHub's language stats towards "Jupyter Notebook". It's really an
+# analysis artifact, so mark it as documentation to keep the language bar honest.
+*.ipynb linguist-documentation
