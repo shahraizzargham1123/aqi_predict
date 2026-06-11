@@ -10,9 +10,11 @@ requests
 python-dotenv
 
 # Feature store + model registry. The [python] extra pulls in confluent-kafka
-# which the offline insert needs, and we pin to 4.7.x to match the Hopsworks
-# backend. Needs Python 3.11/3.12 (it won't build on 3.13+ yet).
-hopsworks[python]==4.7.*
+# which the offline insert needs. The pin has to match the minor version of the
+# Hopsworks backend (currently 5.0), otherwise inserts fail with a 415 error. If
+# Hopsworks upgrades the backend again, bump this to match. Needs Python
+# 3.11/3.12 (it won't build on 3.13+ yet).
+hopsworks[python]==5.0.*
 
 # Explainability
 shap

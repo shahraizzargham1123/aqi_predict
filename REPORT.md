@@ -109,7 +109,7 @@ After installation, even logging in was not possible: the client attempts to wri
 
 ### 3. Feature inserts needed a Kafka dependency
 
-The first time I tried to write features to Hopsworks, the insert failed asking for confluent-kafka. Hopsworks streams offline inserts via Kafka, which isn't included in the base package. I changed the requirement to `hopsworks[python]==4.7.*`. The `[python]` extra pulls in Kafka, and pinning to 4.7 aligns with the Hopsworks backend version (a mismatch warning was nudging me to 4.7). After that the 90-day backfill landed cleanly.
+The first time I tried to write features to Hopsworks, the insert failed asking for confluent-kafka. Hopsworks streams offline inserts via Kafka, which isn't included in the base package, so I switched the requirement to `hopsworks[python]`, where the `[python]` extra pulls it in. The version pin also has to match the minor version of the managed Hopsworks backend, otherwise inserts fail with a 415 error. This one bit me twice: once when I first pinned it, and again later when Hopsworks upgraded their backend to 5.0 and a scheduled run started failing until I bumped the client to match. Once the versions lined up, the backfill and the hourly inserts landed cleanly.
 
 ### 4. An Open-Meteo outage crashed the hourly job
 
